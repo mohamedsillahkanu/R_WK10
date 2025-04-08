@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Week 10: Advanced Machine Learning for Malaria</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <button class="sidebar-toggle" id="sidebar-toggle">Menu</button>
+    
+    <div class="sidebar" id="sidebar">
+        <h3>Course Navigation</h3>
+        <ul>
+            <li class="menu-item">
+                <a href="#week10">📅 Week 10: Advanced Machine Learning</a>
+                <ul class="sub-menu">
+                    <li><a href="#random-forests">Random Forests</a></li>
+                    <li><a href="#logistic-regression">Logistic Regression</a></li>
+                    <li><a href="#clustering">Clustering</a></li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+    
+    <div class="container">
+        <h1 id="week10">📅 Week 10: Advanced Machine Learning for Malaria</h1>
+        
+        <p>This week, we will:<br>
+        ✅ <strong>Implement random forests</strong> using the <code>randomForest</code> package<br>
+        ✅ <strong>Build logistic regression models</strong> for malaria risk prediction<br>
+        ✅ <strong>Apply clustering techniques</strong> (<code>kmeans()</code>, <code>hclust()</code>) to malaria incidence data</p>
+        
+        <hr>
+        
+        <h2 id="random-forests">1️⃣ Random Forests for Malaria Prediction</h2>
+        
+        <h3>Why Use Random Forests?</h3>
+        <p>📌 <strong>Random forests</strong> are powerful ensemble learning methods that can capture complex, non-linear relationships in malaria data and handle multiple predictor variables without overfitting.</p>
+        
+        <h3>Step 1: Preparing Data for Random Forests</h3>
+        <div class="r-code">
+            <pre><code>
+# Install and load necessary packages
+install.packages(c("randomForest", "caret", "ggplot2", "dplyr"))
+library(randomForest)
+library(caret)
+library(ggplot2)
+library(dplyr)
+
+# Load malaria dataset
+malaria_data <- read.csv("malaria_data.csv")
+
+# Examine the structure
+str(malaria_data)
+summary(malaria_data)
+
+# Check for missing values
+missing_values <- colSums(is.na(malaria_data))
+print(missing_values)
+
+# Handle missing values (if any)
+# Option 1: Remove rows with missing values
+malaria_complete <- na.omit(malaria_data)
+
+# Option 2: Impute missing values
+# For numeric variables - use median
+for(col in names(malaria_data)[sapply(malaria_data, is.numeric)]) {
+  malaria_data[[col]][is.na(malaria_data[[col]])] <- median(malaria_data[[col]], na.rm = TRUE)
+}
+
+# For categorical variables - use mode
+get_mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+for(col in names(malaria_data)[sapply(malaria_data, is.factor)]) {
+  malaria_data[[col]][is.na(malaria_data[[col]])] <- get_mode(malaria_data[[col]])
+}
+
+# Convert categorical variables to factors if they aren't already
+malaria_data$region <- as.factor(malaria_data$region)
+malaria_data$area_type <- as.factor(malaria_data$area_type)
+if("season" %in% names(malaria_data)) {
+  malaria_data$season <- as.factor(malaria_data$season)
+}
+
+# Create binary response variable (if needed)
+# For example, high malaria incidence (1) vs. low incidence (0)
+if("incidence" %in% names(malaria_data)) {
+  median_incidence <- median(malaria_data$incidence, na.rm = TRUE)
+  malaria_data$high_incidence <- ifelse(malaria_data$incidence > median_incidence, 1, 0)
+  malaria_data$high_incidence <- as.factor(malaria_data$high_incidence)
+}
+
+# Split data into training and testing sets
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(malaria_data$high_incidence, p = 0.7, list = FALSE)
+train_data <- malaria_data[train_index, ]
+test_data <- malaria_data[-train_index, ]
+
+# Check the distribution of the response variable in both sets
+table(train_data$high_incidence)
+table(test_data$high_incidence)
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Proper data preparation is essential for building effective random forest models<br>
+            ✔ Missing values must be handled through deletion or imputation<br>
+            ✔ Categorical variables should be converted to factors<br>
+            ✔ The data is split into training (70%) and testing (30%) sets<br>
+            ✔ A balanced distribution of the response variable in both sets is important</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 2: Building a Basic Random Forest Model</h3>
+        <div class="r-code">
+            <pre><code>
+# Identify predictor variables
+predictors <- c("rainfall", "temperature", "humidity", "elevation", 
+               "population_density", "region", "area_type")
+
+# Check if all predictors exist in the dataset
+predictors <- predictors[predictors %in% names(train_data)]
+
+# Build formula
+formula <- as.formula(paste("high_incidence ~", paste(predictors, collapse = " + ")))
+
+# Build the random forest model
+rf_model <- randomForest(
+  formula,
+  data = train_data,
+  ntree = 500,         # Number of trees
+  mtry = sqrt(length(predictors)),  # Number of variables to try at each split
+  importance = TRUE    # Calculate variable importance
+)
+
+# Print model summary
+print(rf_model)
+
+# Plot the random forest
+plot(rf_model, main = "Random Forest Error Rate vs Number of Trees")
+
+# Variable importance
+importance(rf_model)
+varImpPlot(rf_model, main = "Variable Importance for Malaria Risk Prediction")
+
+# Make predictions on test data
+rf_predictions <- predict(rf_model, test_data)
+
+# Create confusion matrix to evaluate performance
+conf_matrix <- confusionMatrix(rf_predictions, test_data$high_incidence)
+print(conf_matrix)
+
+# Extract performance metrics
+accuracy <- conf_matrix$overall["Accuracy"]
+sensitivity <- conf_matrix$byClass["Sensitivity"]  # True positive rate
+specificity <- conf_matrix$byClass["Specificity"]  # True negative rate
+
+cat("Accuracy:", round(accuracy, 3), "\n")
+cat("Sensitivity:", round(sensitivity, 3), "\n")
+cat("Specificity:", round(specificity, 3), "\n")
+
+# Visualize the confusion matrix
+conf_data <- as.data.frame(conf_matrix$table)
+colnames(conf_data) <- c("Predicted", "Actual", "Frequency")
+
+ggplot(conf_data, aes(x = Actual, y = Predicted, fill = Frequency)) +
+  geom_tile() +
+  geom_text(aes(label = Frequency), color = "white", size = 10) +
+  scale_fill_gradient(low = "steelblue", high = "darkblue") +
+  labs(
+    title = "Confusion Matrix for Random Forest Malaria Risk Prediction",
+    subtitle = paste("Accuracy:", round(accuracy, 3))
+  ) +
+  theme_minimal()
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ The <code>randomForest()</code> function builds an ensemble of decision trees<br>
+            ✔ <code>ntree</code> specifies the number of trees in the forest (default = 500)<br>
+            ✔ <code>mtry</code> controls the number of variables randomly sampled at each split<br>
+            ✔ Variable importance plots show which factors most strongly predict malaria risk<br>
+            ✔ The confusion matrix shows predictive performance on the test data</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 3: Tuning Random Forest Hyperparameters</h3>
+        <div class="r-code">
+            <pre><code>
+# Tune hyperparameters using cross-validation
+set.seed(456)
+
+# Define parameter grid for tuning
+tune_grid <- expand.grid(
+  mtry = seq(2, length(predictors), by = 1)
+)
+
+# Set up cross-validation
+ctrl <- trainControl(
+  method = "cv",              # Cross-validation
+  number = 5,                 # 5-fold
+  verboseIter = TRUE,         # Show progress
+  classProbs = TRUE,          # Calculate class probabilities
+  summaryFunction = twoClassSummary  # Use ROC statistics for evaluation
+)
+
+# Train model with parameter tuning
+rf_tuned <- train(
+  formula,
+  data = train_data,
+  method = "rf",
+  metric = "ROC",            # Optimize based on ROC
+  trControl = ctrl,
+  tuneGrid = tune_grid,
+  importance = TRUE
+)
+
+# Print the tuning results
+print(rf_tuned)
+plot(rf_tuned)
+
+# Get best mtry value
+best_mtry <- rf_tuned$bestTune$mtry
+cat("Best mtry value:", best_mtry, "\n")
+
+# Build final model with best parameters
+final_rf <- randomForest(
+  formula,
+  data = train_data,
+  ntree = 500,
+  mtry = best_mtry,
+  importance = TRUE
+)
+
+# Make predictions on test data
+final_predictions <- predict(final_rf, test_data)
+final_probs <- predict(final_rf, test_data, type = "prob")
+
+# Evaluate final model
+final_conf_matrix <- confusionMatrix(final_predictions, test_data$high_incidence)
+print(final_conf_matrix)
+
+# Plot ROC curve
+library(pROC)
+roc_obj <- roc(test_data$high_incidence, final_probs[,2])
+auc_value <- auc(roc_obj)
+
+plot(roc_obj, main = paste("ROC Curve (AUC =", round(auc_value, 3), ")"))
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Model tuning improves predictive performance by finding optimal parameters<br>
+            ✔ Cross-validation helps prevent overfitting during parameter selection<br>
+            ✔ <code>mtry</code> is the main parameter to tune in random forests<br>
+            ✔ The ROC curve and AUC value assess the model's discriminative ability<br>
+            ✔ Higher AUC values (closer to 1.0) indicate better performance</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 4: Applying the Random Forest Model for Spatial Prediction</h3>
+        <div class="r-code">
+            <pre><code>
+# Create spatial predictions for malaria risk
+# Load packages for spatial data
+library(sf)
+library(raster)
+library(sp)
+
+# Load spatial data for the study area (assuming we have a raster stack with predictor variables)
+# This would typically include rasters for rainfall, temperature, elevation, etc.
+predictor_stack <- stack(
+  "rainfall_raster.tif",
+  "temperature_raster.tif",
+  "humidity_raster.tif",
+  "elevation_raster.tif",
+  "population_density_raster.tif"
+)
+
+# Extract values for categorical variables if applicable
+# For example, you might have region and area_type as polygon data
+region_polygons <- st_read("region_boundaries.shp")
+area_type_polygons <- st_read("area_type.shp")
+
+# Rasterize polygon data
+region_raster <- rasterize(region_polygons, predictor_stack[[1]], field = "region_id")
+area_type_raster <- rasterize(area_type_polygons, predictor_stack[[1]], field = "area_type_id")
+
+# Add categorical rasters to the stack
+predictor_stack <- stack(predictor_stack, region_raster, area_type_raster)
+
+# Create a prediction function compatible with raster data
+predict_rf <- function(model, data) {
+  # Convert raster data to data frame
+  df <- as.data.frame(data)
+  colnames(df) <- c("rainfall", "temperature", "humidity", "elevation", 
+                   "population_density", "region", "area_type")
+  
+  # Convert categorical variables to factors with the same levels as in training
+  df$region <- factor(df$region, levels = levels(train_data$region))
+  df$area_type <- factor(df$area_type, levels = levels(train_data$area_type))
+  
+  # Make predictions
+  # For pixels with NA values, keep them as NA
+  valid_rows <- complete.cases(df)
+  pred <- rep(NA, nrow(df))
+  
+  if (any(valid_rows)) {
+    # Get probabilities for high incidence
+    pred_prob <- predict(model, df[valid_rows, ], type = "prob")[, 2]
+    pred[valid_rows] <- pred_prob
+  }
+  
+  return(pred)
+}
+
+# Apply random forest model to the entire raster stack
+risk_prediction <- predict(predictor_stack, final_rf, fun = predict_rf)
+
+# Plot the prediction map
+plot(risk_prediction, 
+     main = "Predicted Probability of High Malaria Incidence",
+     col = colorRampPalette(c("green", "yellow", "red"))(100))
+
+# Add administrative boundaries
+plot(st_geometry(region_polygons), add = TRUE, border = "black")
+
+# Save the prediction raster
+writeRaster(risk_prediction, "malaria_risk_prediction.tif", overwrite = TRUE)
+
+# Validate predictions with known point data (if available)
+validation_points <- read.csv("validation_sites.csv")
+validation_sf <- st_as_sf(validation_points, coords = c("longitude", "latitude"), crs = st_crs(region_polygons))
+
+# Extract predicted values at validation points
+validation_values <- extract(risk_prediction, validation_sf)
+validation_points$predicted_risk <- validation_values
+
+# Calculate correlation between observed and predicted values
+correlation <- cor(validation_points$observed_incidence, validation_points$predicted_risk, 
+                  use = "complete.obs")
+cat("Correlation between observed and predicted values:", round(correlation, 3), "\n")
+
+# Plot observed vs predicted
+ggplot(validation_points, aes(x = observed_incidence, y = predicted_risk)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(
+    title = "Observed vs Predicted Malaria Incidence",
+    subtitle = paste("Correlation =", round(correlation, 3)),
+    x = "Observed Incidence",
+    y = "Predicted Risk"
+  ) +
+  theme_minimal()
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Random forest models can be applied to spatial data for risk mapping<br>
+            ✔ Predictor variables are organized as a raster stack with aligned layers<br>
+            ✔ The model predicts malaria risk probability for each raster cell<br>
+            ✔ The resulting map identifies high-risk areas for targeted interventions<br>
+            ✔ Validation with independent data assesses the spatial accuracy of predictions</p>
+        </div>
+        
+        <hr>
+        
+        <h2 id="logistic-regression">2️⃣ Logistic Regression for Malaria Risk Prediction</h2>
+        
+        <h3>Step 1: Preparing Data for Logistic Regression</h3>
+        <div class="r-code">
+            <pre><code>
+# Load necessary packages
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(MASS)  # For stepwise selection
+library(car)   # For VIF calculation
+
+# Use the same data preparation as for random forests
+# We'll assume we're working with the same train_data and test_data
+# But we'll check for multicollinearity and transform variables if needed
+
+# Check for multicollinearity
+# Select only numeric predictors for correlation analysis
+numeric_predictors <- train_data %>% 
+  select_if(is.numeric) %>%
+  select(-incidence, -cases)  # Remove response variables
+
+# Calculate correlation matrix
+cor_matrix <- cor(numeric_predictors, use = "pairwise.complete.obs")
+print(cor_matrix)
+
+# Visualize correlation matrix
+library(corrplot)
+corrplot(cor_matrix, method = "circle", type = "upper", 
+         tl.col = "black", tl.srt = 45, 
+         addCoef.col = "black", number.cex = 0.7)
+
+# Build an initial model with all predictors
+initial_model <- glm(
+  high_incidence ~ .,  # Use all available predictors
+  data = train_data %>% select(c(predictors, "high_incidence")),
+  family = binomial(link = "logit")
+)
+
+# Calculate variance inflation factors (VIF)
+vif_values <- vif(initial_model)
+print(vif_values)
+
+# Remove highly collinear variables (VIF > 5)
+high_vif <- names(vif_values[vif_values > 5])
+if (length(high_vif) > 0) {
+  cat("Removing variables with high VIF:", paste(high_vif, collapse = ", "), "\n")
+  updated_predictors <- predictors[!predictors %in% high_vif]
+} else {
+  updated_predictors <- predictors
+}
+
+# Check for linearity in the logit
+# For each numeric predictor, add an interaction with its log
+numeric_predictors <- updated_predictors[sapply(train_data[updated_predictors], is.numeric)]
+linearity_formula <- as.formula(paste("high_incidence ~", 
+                                    paste(updated_predictors, collapse = " + "), "+",
+                                    paste(paste0(numeric_predictors, "*log(", numeric_predictors, " + 0.001)"), 
+                                        collapse = " + ")))
+
+linearity_model <- glm(linearity_formula, data = train_data, family = binomial)
+summary(linearity_model)
+
+# If interactions are significant, consider transformations
+# For example, if rainfall*log(rainfall) is significant, consider log transformation
+
+# Apply necessary transformations
+train_data$log_rainfall <- log(train_data$rainfall + 0.001)
+test_data$log_rainfall <- log(test_data$rainfall + 0.001)
+
+# Update predictors if needed
+if("rainfall" %in% updated_predictors && any(grepl("rainfall\\*log", rownames(summary(linearity_model)$coefficients)))) {
+  updated_predictors <- c(updated_predictors[updated_predictors != "rainfall"], "log_rainfall")
+}
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Unlike random forests, logistic regression requires careful attention to assumptions<br>
+            ✔ Multicollinearity is assessed using the Variance Inflation Factor (VIF)<br>
+            ✔ Variables with high VIF (> 5) indicate problematic multicollinearity<br>
+            ✔ The linearity assumption in logit is checked with predictor-log interactions<br>
+            ✔ Transformations (e.g., log) can address non-linear relationships</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 2: Building and Evaluating Logistic Regression Models</h3>
+        <div class="r-code">
+            <pre><code>
+# Build logistic regression model with updated predictors
+logit_formula <- as.formula(paste("high_incidence ~", paste(updated_predictors, collapse = " + ")))
+
+logit_model <- glm(
+  logit_formula,
+  data = train_data,
+  family = binomial(link = "logit")
+)
+
+# Model summary
+summary(logit_model)
+
+# Perform stepwise variable selection
+step_model <- stepAIC(logit_model, direction = "both", trace = TRUE)
+summary(step_model)
+
+# Compare models using AIC
+cat("Full model AIC:", AIC(logit_model), "\n")
+cat("Stepwise model AIC:", AIC(step_model), "\n")
+
+# Calculate odds ratios for the final model
+odds_ratios <- exp(coef(step_model))
+conf_int <- exp(confint(step_model))
+odds_ratio_table <- data.frame(
+  Odds_Ratio = odds_ratios,
+  Lower_CI = conf_int[, 1],
+  Upper_CI = conf_int[, 2]
+)
+print(odds_ratio_table)
+
+# Plot odds ratios for better visualization
+odds_df <- data.frame(
+  Variable = names(odds_ratios),
+  OddsRatio = odds_ratios,
+  Lower = conf_int[, 1],
+  Upper = conf_int[, 2]
+) %>%
+  filter(Variable != "(Intercept)")  # Remove intercept
+
+# Sort by odds ratio magnitude
+odds_df <- odds_df %>%
+  mutate(AbsLog = abs(log(OddsRatio))) %>%
+  arrange(desc(AbsLog)) %>%
+  mutate(Variable = factor(Variable, levels = Variable))
+
+ggplot(odds_df, aes(x = Variable, y = OddsRatio)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.2) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    title = "Odds Ratios for Malaria Risk Factors",
+    subtitle = "Values > 1 increase risk, values < 1 decrease risk",
+    x = "",
+    y = "Odds Ratio (log scale)"
+  ) +
+  theme_minimal()
+
+# Make predictions on test data
+logit_probs <- predict(step_model, newdata = test_data, type = "response")
+logit_predictions <- ifelse(logit_probs > 0.5, 1, 0)
+logit_predictions <- factor(logit_predictions, levels = levels(test_data$high_incidence))
+
+# Create confusion matrix
+logit_conf_matrix <- confusionMatrix(logit_predictions, test_data$high_incidence)
+print(logit_conf_matrix)
+
+# ROC curve analysis
+library(pROC)
+logit_roc <- roc(test_data$high_incidence, logit_probs)
+logit_auc <- auc(logit_roc)
+
+# Plot ROC curve
+plot(logit_roc, main = paste("Logistic Regression ROC Curve (AUC =", round(logit_auc, 3), ")"))
+
+# Compare with random forest ROC curve
+plot(roc_obj, col = "blue", main = "ROC Curve Comparison")
+plot(logit_roc, col = "red", add = TRUE)
+legend("bottomright", legend = c(paste("Random Forest (AUC =", round(auc_value, 3), ")"),
+                               paste("Logistic Regression (AUC =", round(logit_auc, 3), ")")),
+      col = c("blue", "red"), lwd = 2)
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Logistic regression models the probability of high malaria incidence<br>
+            ✔ Stepwise selection (AIC) helps identify the most important predictors<br>
+            ✔ Odds ratios quantify how each variable affects malaria risk<br>
+            ✔ Odds ratio > 1: increased risk; odds ratio < 1: decreased risk<br>
+            ✔ ROC curve comparison shows how logistic regression performs vs. random forest</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 3: Interpreting and Applying the Logistic Regression Model</h3>
+        <div class="r-code">
+            <pre><code>
+# Create effect plots to visualize relationships
+library(effects)
+
+# Calculate and plot effects for continuous variables
+if (length(numeric_predictors) > 0) {
+  for (var in numeric_predictors) {
+    if (var %in% names(step_model$coefficients)) {
+      effect_plot <- plot(effect(var, step_model), 
+                        main = paste("Effect of", var, "on Malaria Risk"),
+                        xlab = var,
+                        ylab = "Probability of High Incidence")
+      print(effect_plot)
+    }
+  }
+}
+
+# Calculate and plot effects for categorical variables
+categorical_predictors <- updated_predictors[!updated_predictors %in% numeric_predictors]
+if (length(categorical_predictors) > 0) {
+  for (var in categorical_predictors) {
+    if (any(grepl(var, names(step_model$coefficients)))) {
+      effect_plot <- plot(effect(var, step_model), 
+                        main = paste("Effect of", var, "on Malaria Risk"),
+                        xlab = var,
+                        ylab = "Probability of High Incidence")
+      print(effect_plot)
+    }
+  }
+}
+
+# Create a risk scoring system
+# Get coefficients from the model
+coef_values <- coef(step_model)
+
+# Create a function to calculate risk scores
+calculate_risk_score <- function(data, model) {
+  # Linear predictor
+  linear_pred <- predict(model, newdata = data, type = "link")
+  
+  # Convert to probability
+  prob <- predict(model, newdata = data, type = "response")
+  
+  # Create risk categories
+  risk_category <- cut(prob, 
+                      breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+                      labels = c("Very Low", "Low", "Moderate", "High", "Very High"),
+                      include.lowest = TRUE)
+  
+  return(data.frame(
+    linear_predictor = linear_pred,
+    probability = prob,
+    risk_category = risk_category
+  ))
+}
+
+# Apply to test data
+test_data$risk_results <- calculate_risk_score(test_data, step_model)
+test_data$risk_category <- test_data$risk_results$risk_category
+
+# Visualize risk distribution
+ggplot(test_data, aes(x = risk_results$probability)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "red") +
+  labs(
+    title = "Distribution of Predicted Malaria Risk",
+    x = "Probability of High Incidence",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+# Create a risk calculator for new locations
+new_locations <- data.frame(
+  rainfall = c(120, 200, 80),
+  temperature = c(25, 28, 22),
+  humidity = c(70, 85, 60),
+  elevation = c(500, 200, 1200),
+  population_density = c(150, 300, 50),
+  region = c("Coast", "Western", "Highland"),
+  area_type = c("Rural", "Urban", "Rural")
+)
+
+# Transform variables as needed
+if ("log_rainfall" %in% updated_predictors) {
+  new_locations$log_rainfall <- log(new_locations$rainfall + 0.001)
+}
+
+# Convert factors to match training data
+for (col in names(new_locations)[sapply(new_locations, is.character)]) {
+  if (col %in% names(train_data)) {
+    new_locations[[col]] <- factor(new_locations[[col]], levels = levels(train_data[[col]]))
+  }
+}
+
+# Calculate risk for new locations
+new_locations$risk_results <- calculate_risk_score(new_locations, step_model)
+
+# Display results
+print(new_locations[, c(1:7, 9:11)])
+
+# Create a function for what-if scenarios
+predict_risk_changes <- function(base_location, variable, new_values) {
+  results <- data.frame(Value = new_values)
+  predictions <- numeric(length(new_values))
+  
+  for (i in 1:length(new_values)) {
+    modified_location <- base_location
+    modified_location[[variable]] <- new_values[i]
+    
+    # Handle transformations
+    if (variable == "rainfall" && "log_rainfall" %in% updated_predictors) {
+      modified_location$log_rainfall <- log(new_values[i] + 0.001)
+    }
+    
+    risk_result <- calculate_risk_score(modified_location, step_model)
+    predictions[i] <- risk_result$probability
+  }
+  
+  results$Risk_Probability <- predictions
+  return(results)
+}
+
+# Example: How would changing rainfall affect risk for the first location?
+base_location <- new_locations[1, ]
+rainfall_values <- seq(0, 300, by = 25)
+rainfall_impact <- predict_risk_changes(base_location, "rainfall", rainfall_values)
+
+# Plot the relationship
+ggplot(rainfall_impact, aes(x = Value, y = Risk_Probability)) +
+  geom_line(size = 1, color = "steelblue") +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "red") +
+  labs(
+    title = "Impact of Rainfall on Malaria Risk",
+    subtitle = paste("Base location:", new_locations$region[1], "-", new_locations$area_type[1]),
+    x = "Rainfall (mm)",
+    y = "Probability of High Incidence"
+  ) +
+  theme_minimal()
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Effect plots visualize how each predictor influences malaria risk<br>
+            ✔ Risk scores can be calculated for any location using the model coefficients<br>
+            ✔ Risk categories provide an intuitive classification system for interventions<br>
+            ✔ The risk calculator can be applied to new locations for prediction<br>
+            ✔ What-if scenarios help understand how changing conditions affect risk</p>
+        </div>
+        
+        <hr>
+        
+        <h2 id="clustering">3️⃣ Clustering Malaria Incidence Patterns</h2>
+        
+        <h3>Step 1: Preparing Data for Clustering</h3>
+        <div class="r-code">
+            <pre><code>
+# Load necessary packages
+library(tidyverse)
+library(cluster)
+library(factoextra)
+library(NbClust)
+
+# Load malaria time series data
+# This could be monthly incidence data across different regions/sites
+malaria_ts <- read.csv("malaria_timeseries.csv")
+
+# Examine the structure
+head(malaria_ts)
+str(malaria_ts)
+
+# Convert to wide format if needed 
+# (rows = locations, columns = time points)
+if("month" %in% names(malaria_ts) || "date" %in% names(malaria_ts)) {
+  time_var <- ifelse("date" %in% names(malaria_ts), "date", "month")
+  malaria_wide <- malaria_ts %>%
+    pivot_wider(
+      id_cols = c("site_id", "region"),
+      names_from = time_var,
+      values_from = "incidence"
+    )
+} else {
+  # Assume data is already in wide format
+  malaria_wide <- malaria_ts
+}
+
+# Check for missing values
+missing_count <- sum(is.na(malaria_wide))
+if(missing_count > 0) {
+  cat("Found", missing_count, "missing values\n")
+  
+  # Impute missing values with column means
+  for(col in 3:ncol(malaria_wide)) {
+    col_mean <- mean(malaria_wide[[col]], na.rm = TRUE)
+    malaria_wide[[col]][is.na(malaria_wide[[col]])] <- col_mean
+  }
+}
+
+# Extract site information for later use
+site_info <- malaria_wide[, 1:2]
+
+# Extract only the numeric incidence columns for clustering
+cluster_data <- malaria_wide[, 3:ncol(malaria_wide)]
+
+# Scale the data (important for distance-based clustering)
+scaled_data <- scale(cluster_data)
+
+# Check for any remaining NAs or infinite values
+if(any(is.na(scaled_data)) || any(is.infinite(scaled_data))) {
+  cat("Warning: Data contains NAs or infinite values after scaling. Replacing with zeros.\n")
+  scaled_data[is.na(scaled_data) | is.infinite(scaled_data)] <- 0
+}
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Clustering requires data in wide format (sites as rows, time points as columns)<br>
+            ✔ Missing values must be imputed to avoid biasing the clusters<br>
+            ✔ Scaling is essential to ensure all time points contribute equally<br>
+            ✔ Site information is preserved for interpreting clusters later<br>
+            ✔ Properly formatted data is crucial for meaningful clustering results</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 2: K-means Clustering of Malaria Incidence Patterns</h3>
+        <div class="r-code">
+            <pre><code>
+# Determine optimal number of clusters
+# Method 1: Elbow method
+set.seed(123)
+wss <- numeric(15)
+for (i in 1:15) {
+  km <- kmeans(scaled_data, centers = i, nstart = 25)
+  wss[i] <- km$tot.withinss
+}
+
+# Plot elbow chart
+plot(1:15, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of clusters", ylab = "Total within-clusters sum of squares",
+     main = "Elbow Method for Optimal K")
+abline(v = which(diff(wss) < mean(diff(wss)))[1] + 1, col = "red", lty = 2)
+
+# Method 2: Silhouette method
+sil_width <- numeric(14)
+for (i in 2:15) {
+  km <- kmeans(scaled_data, centers = i, nstart = 25)
+  ss <- silhouette(km$cluster, dist(scaled_data))
+  sil_width[i-1] <- mean(ss[, 3])
+}
+
+# Plot silhouette chart
+plot(2:15, sil_width, type = "b", pch = 19, frame = FALSE,
+     xlab = "Number of clusters", ylab = "Average silhouette width",
+     main = "Silhouette Method for Optimal K")
+abline(v = which.max(sil_width) + 1, col = "red", lty = 2)
+
+# Method 3: Gap statistic
+# Note: This can be computationally intensive
+library(cluster)
+set.seed(123)
+gap_stat <- clusGap(scaled_data, FUN = kmeans, nstart = 25,
+                   K.max = 15, B = 50)
+print(gap_stat)
+fviz_gap_stat(gap_stat) + labs(title = "Gap Statistic Method for Optimal K")
+
+# Based on the above methods, determine optimal K
+# For this example, let's say optimal K = 4
+optimal_k <- 4  # Adjust based on your results
+
+# Perform k-means clustering with optimal K
+set.seed(123)
+kmeans_result <- kmeans(scaled_data, centers = optimal_k, nstart = 25)
+
+# Add cluster assignments to the original data
+malaria_wide$cluster <- kmeans_result$cluster
+
+# Examine the cluster sizes
+table(malaria_wide$cluster)
+
+# Visualize clusters
+# Using PCA for dimensionality reduction to visualize in 2D
+pca <- prcomp(scaled_data)
+pca_data <- as.data.frame(pca$x[, 1:2])
+pca_data$cluster <- factor(kmeans_result$cluster)
+pca_data$site_id <- site_info$site_id
+pca_data$region <- site_info$region
+
+# Plot PCA with clusters
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster, label = site_id)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_text(aes(label = site_id), hjust = 0, vjust = 0, size = 3, check_overlap = TRUE) +
+  stat_ellipse(level = 0.95) +
+  labs(
+    title = "K-means Clustering of Malaria Incidence Patterns",
+    subtitle = paste(optimal_k, "clusters identified"),
+    x = "Principal Component 1",
+    y = "Principal Component 2"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")
+
+# Visualize cluster centers (incidence patterns)
+centers <- as.data.frame(t(kmeans_result$centers))
+centers$month <- rownames(centers)
+centers_long <- centers %>%
+  pivot_longer(cols = -month, names_prefix = "V", names_to = "cluster", values_to = "value")
+
+# Make cluster a factor
+centers_long$cluster <- factor(centers_long$cluster)
+
+# Plot cluster centers
+ggplot(centers_long, aes(x = month, y = value, color = cluster, group = cluster)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Malaria Incidence Patterns by Cluster",
+    subtitle = "Cluster centers showing typical temporal patterns",
+    x = "Month",
+    y = "Standardized Incidence"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_brewer(palette = "Set1")
+
+# Analyze cluster composition by region
+cluster_by_region <- malaria_wide %>%
+  group_by(region, cluster) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  pivot_wider(names_from = cluster, values_from = count, names_prefix = "Cluster_")
+
+print(cluster_by_region)
+
+# Visualize cluster distribution by region
+region_cluster <- malaria_wide %>%
+  group_by(region) %>%
+  count(cluster) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+ggplot(region_cluster, aes(x = region, y = percentage, fill = factor(cluster))) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(
+    title = "Cluster Distribution by Region",
+    x = "Region",
+    y = "Percentage",
+    fill = "Cluster"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set1")
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ K-means clustering groups sites with similar incidence patterns<br>
+            ✔ Determining the optimal number of clusters (K) is a critical step<br>
+            ✔ The elbow, silhouette, and gap statistic methods help identify optimal K<br>
+            ✔ PCA helps visualize high-dimensional cluster assignments in 2D<br>
+            ✔ Cluster centers reveal typical temporal patterns within each group</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 3: Hierarchical Clustering of Malaria Patterns</h3>
+        <div class="r-code">
+            <pre><code>
+# Perform hierarchical clustering
+# Compute distance matrix
+dist_matrix <- dist(scaled_data, method = "euclidean")
+
+# Perform hierarchical clustering with different linkage methods
+hc_complete <- hclust(dist_matrix, method = "complete")
+hc_average <- hclust(dist_matrix, method = "average")
+hc_ward <- hclust(dist_matrix, method = "ward.D2")
+
+# Plot dendrograms
+par(mfrow = c(1, 3))
+plot(hc_complete, main = "Complete Linkage", xlab = "", sub = "", cex = 0.7)
+plot(hc_average, main = "Average Linkage", xlab = "", sub = "", cex = 0.7)
+plot(hc_ward, main = "Ward's Method", xlab = "", sub = "", cex = 0.7)
+par(mfrow = c(1, 1))
+
+# Based on visual inspection, let's use Ward's method
+# Cut the dendrogram to create the same number of clusters as in k-means
+hc_clusters <- cutree(hc_ward, k = optimal_k)
+
+# Add hierarchical cluster assignments to the data
+malaria_wide$hc_cluster <- hc_clusters
+
+# Compare k-means and hierarchical clustering results
+comparison <- table(K_means = malaria_wide$cluster, Hierarchical = malaria_wide$hc_cluster)
+print(comparison)
+
+# Calculate agreement percentage
+agreement <- sum(diag(comparison)) / sum(comparison) * 100
+cat("Agreement between k-means and hierarchical clustering:", round(agreement, 1), "%\n")
+
+# Visualize hierarchical clusters using PCA
+pca_data$hc_cluster <- factor(hc_clusters)
+
+ggplot(pca_data, aes(x = PC1, y = PC2, color = hc_cluster)) +
+  geom_point(size = 3, alpha = 0.7) +
+  stat_ellipse(level = 0.95) +
+  labs(
+    title = "Hierarchical Clustering of Malaria Incidence Patterns",
+    subtitle = paste(optimal_k, "clusters using Ward's method"),
+    x = "Principal Component 1",
+    y = "Principal Component 2"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set2")
+
+# Create a prettier dendrogram with colored clusters
+library(dendextend)
+
+# Create dendrogram object
+dend <- as.dendrogram(hc_ward)
+
+# Color branches by cluster
+dend <- color_branches(dend, k = optimal_k)
+
+# Color labels
+dend <- color_labels(dend, k = optimal_k)
+
+# Plot the colored dendrogram
+plot(dend, main = "Hierarchical Clustering of Malaria Incidence Patterns",
+     ylab = "Height", leaflab = "none")
+abline(h = max(hc_ward$height) * 0.5, lty = 2, col = "gray")
+
+# Add site information to the clusters
+hierarchical_clusters <- data.frame(
+  site_id = site_info$site_id,
+  region = site_info$region,
+  cluster = hc_clusters
+)
+
+# Examine incidence patterns within each hierarchical cluster
+# Calculate mean incidence pattern for each cluster
+hc_centers <- matrix(0, nrow = ncol(cluster_data), ncol = optimal_k)
+for (i in 1:optimal_k) {
+  cluster_sites <- which(hc_clusters == i)
+  hc_centers[, i] <- colMeans(scaled_data[cluster_sites, , drop = FALSE])
+}
+
+# Convert to data frame for plotting
+hc_centers_df <- as.data.frame(hc_centers)
+colnames(hc_centers_df) <- paste0("Cluster_", 1:optimal_k)
+hc_centers_df$month <- colnames(cluster_data)
+
+# Reshape for plotting
+hc_centers_long <- hc_centers_df %>%
+  pivot_longer(cols = starts_with("Cluster_"), 
+              names_to = "cluster", 
+              values_to = "value")
+
+# Plot hierarchical cluster centers
+ggplot(hc_centers_long, aes(x = month, y = value, color = cluster, group = cluster)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Malaria Incidence Patterns by Hierarchical Cluster",
+    subtitle = "Cluster centers showing typical temporal patterns",
+    x = "Month",
+    y = "Standardized Incidence"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_brewer(palette = "Set2")
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Hierarchical clustering creates a tree-like structure (dendrogram)<br>
+            ✔ Different linkage methods (complete, average, Ward's) produce different results<br>
+            ✔ Ward's method often works well for ecological data like malaria incidence<br>
+            ✔ Comparing k-means and hierarchical results validates cluster stability<br>
+            ✔ Dendrograms help visualize the hierarchical relationships between sites</p>
+        </div>
+        
+        <hr>
+        
+        <h3>Step 4: Applying Clustering Results to Malaria Control Planning</h3>
+        <div class="r-code">
+            <pre><code>
+# Analyze characteristics of each cluster
+# First, add cluster assignments back to the original data
+cluster_summary <- malaria_wide %>%
+  select(site_id, region, cluster) %>%
+  left_join(malaria_ts, by = c("site_id", "region"))
+
+# Calculate key metrics for each cluster
+cluster_metrics <- cluster_summary %>%
+  group_by(cluster) %>%
+  summarize(
+    sites = n_distinct(site_id),
+    mean_incidence = mean(incidence, na.rm = TRUE),
+    peak_incidence = max(incidence, na.rm = TRUE),
+    peak_month = names(which.max(table(month[incidence == max(incidence, na.rm = TRUE)]))),
+    seasonality_index = sd(incidence, na.rm = TRUE) / mean(incidence, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(cluster_metrics)
+
+# Visualize key metrics by cluster
+cluster_metrics_long <- cluster_metrics %>%
+  select(-peak_month) %>%
+  pivot_longer(cols = c(mean_incidence, peak_incidence, seasonality_index),
+              names_to = "metric", values_to = "value")
+
+ggplot(cluster_metrics_long, aes(x = factor(cluster), y = value, fill = factor(cluster))) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ metric, scales = "free_y") +
+  labs(
+    title = "Key Metrics by Malaria Incidence Cluster",
+    x = "Cluster",
+    y = "Value",
+    fill = "Cluster"
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1")
+
+# Create a map of cluster distribution (if geographic coordinates available)
+if("longitude" %in% names(malaria_ts) && "latitude" %in% names(malaria_ts)) {
+  # Get geographic coordinates for each site
+  geo_data <- malaria_ts %>%
+    select(site_id, longitude, latitude) %>%
+    distinct() %>%
+    left_join(hierarchical_clusters, by = "site_id")
+  
+  # Create a spatial map
+  library(leaflet)
+  
+  # Define cluster colors
+  cluster_colors <- colorFactor(
+    palette = brewer.pal(optimal_k, "Set1"),
+    domain = geo_data$cluster
+  )
+  
+  # Create the map
+  leaflet(geo_data) %>%
+    addTiles() %>%
+    addCircleMarkers(
+      lng = ~longitude,
+      lat = ~latitude,
+      color = ~cluster_colors(cluster),
+      radius = 8,
+      fillOpacity = 0.8,
+      stroke = FALSE,
+      popup = ~paste("Site:", site_id, "<br>Region:", region, 
+                   "<br>Cluster:", cluster)
+    ) %>%
+    addLegend(
+      position = "bottomright",
+      colors = brewer.pal(optimal_k, "Set1"),
+      labels = paste("Cluster", 1:optimal_k),
+      title = "Malaria Clusters"
+    )
+}
+
+# Define intervention strategies based on cluster characteristics
+intervention_strategies <- data.frame(
+  cluster = 1:optimal_k,
+  characteristics = c(
+    "High seasonality, peak in rainy season",
+    "Moderate incidence, less seasonal",
+    "High incidence year-round",
+    "Low incidence with occasional outbreaks"
+  ),
+  primary_intervention = c(
+    "Seasonal chemoprevention + LLIN distribution before peak season",
+    "Routine case management + continuous LLIN use",
+    "Intensive vector control + case management all year",
+    "Surveillance-based targeted response"
+  ),
+  timing = c(
+    "Focus on months 5-8 (rainy season)",
+    "Consistent year-round approach",
+    "Year-round with enhanced efforts in high transmission season",
+    "Reactive based on surveillance triggers"
+  )
+)
+
+# Print intervention strategies by cluster
+print(intervention_strategies)
+
+# Create a more detailed implementation plan
+implementation_plan <- data.frame(
+  cluster = rep(1:optimal_k, each = 3),
+  intervention_type = rep(c("Vector Control", "Chemoprevention", "Case Management"), optimal_k),
+  details = c(
+    # Cluster 1
+    "Targeted IRS 1 month before peak season + LLIN distribution",
+    "SMC for children under 5 during peak transmission months",
+    "Enhanced community case management during high season",
+    
+    # Cluster 2
+    "Maintain high LLIN coverage with regular replacement",
+    "Intermittent preventive treatment for pregnant women",
+    "Strengthen facility-based diagnosis and treatment",
+    
+    # Cluster 3
+    "Combination of IRS, LLIN, and larval source management",
+    "Year-round chemoprevention for high-risk groups",
+    "Robust case management + active case detection",
+    
+    # Cluster 4
+    "Focal IRS in response to outbreak detection",
+    "Targeted drug administration in outbreak areas",
+    "Enhanced surveillance with rapid response teams"
+  ),
+  estimated_cost = c(
+    "High", "Medium", "Medium",
+    "Medium", "Low", "Medium",
+    "Very High", "High", "High",
+    "Low", "Low", "Medium"
+  ),
+  expected_impact = c(
+    "High", "High", "Medium",
+    "Medium", "Medium", "Medium",
+    "High", "High", "High",
+    "Medium", "High", "Medium"
+  )
+)
+
+# Display the implementation plan
+print(implementation_plan)
+
+# Create a visualization of the implementation plan
+implementation_plot <- implementation_plan %>%
+  mutate(
+    cost_value = case_when(
+      estimated_cost == "Low" ~ 1,
+      estimated_cost == "Medium" ~ 2,
+      estimated_cost == "High" ~ 3,
+      estimated_cost == "Very High" ~ 4
+    ),
+    impact_value = case_when(
+      expected_impact == "Low" ~ 1,
+      expected_impact == "Medium" ~ 2,
+      expected_impact == "High" ~ 3
+    )
+  )
+
+ggplot(implementation_plot, 
+       aes(x = intervention_type, y = factor(cluster), fill = cost_value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = details), size = 2.5, color = "black", fontface = "bold") +
+  scale_fill_gradient(low = "lightgreen", high = "darkred",
+                     name = "Estimated Cost",
+                     labels = c("Low", "Medium", "High", "Very High"),
+                     breaks = 1:4) +
+  labs(
+    title = "Tailored Intervention Strategies by Malaria Cluster",
+    x = "Intervention Type",
+    y = "Cluster"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 12, face = "bold"))
+            </code></pre>
+        </div>
+        
+        <div class="explanation">
+            <h4>🔍 Explanation:</h4>
+            <p>✔ Clustering results can directly inform malaria control planning<br>
+            ✔ Each cluster represents an area with distinct malaria transmission patterns<br>
+            ✔ Tailored intervention strategies can be developed for each cluster<br>
+            ✔ Geographic mapping helps visualize spatial distribution of clusters<br>
+            ✔ Implementation plans with timing, costs, and impacts facilitate resource allocation</p>
+        </div>
+        
+        <hr>
+        
+        <h2 id="summary">✅ Summary of Week 10</h2>
+        <p>By the end of this week, you should be able to:</p>
+        
+        <h3>Random Forests</h3>
+        <ul>
+            <li>✔ Prepare malaria data appropriately for random forest analysis</li>
+            <li>✔ Build and tune random forest models for malaria prediction</li>
+            <li>✔ Evaluate model performance and interpret variable importance</li>
+            <li>✔ Apply random forest models to create spatial risk maps</li>
+        </ul>
+        
+        <h3>Logistic Regression</h3>
+        <ul>
+            <li>✔ Check and address logistic regression assumptions for malaria data</li>
+            <li>✔ Build and interpret odds ratios for malaria risk factors</li>
+            <li>✔ Compare model performance with random forests</li>
+            <li>✔ Create practical risk scoring systems for field use</li>
+        </ul>
+        
+        <h3>Clustering</h3>
+        <ul>
+            <li>✔ Prepare time series malaria data for clustering analysis</li>
+            <li>✔ Apply k-means and hierarchical clustering to identify incidence patterns</li>
+            <li>✔ Interpret cluster characteristics and temporal profiles</li>
+            <li>✔ Develop tailored intervention strategies based on cluster results</li>
+        </ul>
+        
+        <h3>Next Steps</h3>
+        <p>Now that you've learned advanced machine learning techniques for malaria, you can:</p>
+        <ul>
+            <li>👉 Apply these methods to your own malaria surveillance datasets</li>
+            <li>👉 Integrate environmental, demographic, and malaria data for enhanced prediction</li>
+            <li>👉 Develop decision support tools for targeted intervention planning</li>
+            <li>👉 Use clustering results to optimize resource allocation in malaria control programs</li>
+        </ul>
+        
+        <hr>
+        
+        <h3>Additional Resources</h3>
+        <ul>
+            <li>📚 <a href="https://www.jstatsoft.org/article/view/v077i01">Random Forest Implementation in R (Guide)</a></li>
+            <li>📚 <a href="https://link.springer.com/article/10.1186/1475-2875-13-367">Machine Learning for Malaria Risk Mapping (Research Article)</a></li>
+            <li>📚 <a href="https://cran.r-project.org/web/packages/factoextra/index.html">factoextra package for clustering visualization</a></li>
+            <li>📚 <a href="https://malariajournal.biomedcentral.com/articles/10.1186/s12936-018-2432-0">Clustering of Malaria Transmission Dynamics (Research Paper)</a></li>
+            <li>📚 <a href="https://www.frontiersin.org/articles/10.3389/fpubh.2021.631835/full">Predictive Models for Malaria Outbreak Detection</a></li>
+        </ul>
+        
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
